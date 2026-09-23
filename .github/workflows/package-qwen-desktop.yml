@@ -1,38 +1,59 @@
 name: Build portable Qwen Desktop GUI 0.24.4
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - name: Download Qwen Desktop Setup via curl
+        shell: pwsh
         run: |
-          curl -L "https://github.com/QwenLM/qwen-code/releases/download/desktop-v0.24.4/Qwen-Code-Desktop_0.24.4_x64-setup.exe" -o qwen-desktop-setup.exe
+          curl.exe -L "https://github.com/QwenLM/qwen-code/releases/download/desktop-v0.24.4/Qwen-Code-Desktop_0.24.4_x64-setup.exe" -o qwen-desktop-setup.exe
           Get-Item qwen-desktop-setup.exe
 
       - name: Run silent install and wait for installer process
+        shell: pwsh
         run: |
-          .\qwen-desktop-setup.exe /S
-          # 等待安装程序进程结束
-          Wait-Process -Name "Qwen-Code-Desktop_0.24.4_x64-setup" -Timeout 40
+          $installer = ".\qwen-desktop-setup.exe"
+
+          # 使用 Start-Process 启动安装程序，-Wait 确保等待进程结束
+          $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru -Wait -NoNewWindow
+          Write-Host "安装程序退出码: $($proc.ExitCode)"
+
+          # 等待安装文件系统刷盘
           Start-Sleep -Seconds 10
-          # 列出目录，检查是否生成
-          Get-ChildItem "$env:LOCALAPPDATA\Programs"
+
+          # 列出可能的安装位置，便于排查
+          Write-Host "== LOCALAPPDATA\Programs =="
+          Get-ChildItem "$env:LOCALAPPDATA\Programs" -ErrorAction SilentlyContinue
+
+          # 校验安装目录是否存在
+          $installDir = "$env:LOCALAPPDATA\Programs\qwen-code-desktop"
+          if (-not (Test-Path $installDir)) {
+            Write-Error "安装目录不存在: $installDir"
+            exit 1
+          }
+          Write-Host "== 安装目录内容 =="
+          Get-ChildItem $installDir
 
       - name: Copy installed Tauri Desktop directory
+        shell: pwsh
         run: |
           $src = "$env:LOCALAPPDATA\Programs\qwen-code-desktop"
-          if(Test-Path $src){
-            Copy-Item $src -Destination .\qwen-desktop-portable -Recurse -Force
-          }else{
+          if (Test-Path $src) {
+            Copy-Item $src -Destination ".\qwen-desktop-portable" -Recurse -Force
+          } else {
             Write-Error "安装目录不存在"
             exit 1
           }
 
       - name: Compress portable folder
+        shell: pwsh
         run: |
-          Compress-Archive -Path .\qwen-desktop-portable\* -DestinationPath qwen-desktop-portable.zip
+          Compress-Archive -Path ".\qwen-desktop-portable\*" -DestinationPath qwen-desktop-portable.zip -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
