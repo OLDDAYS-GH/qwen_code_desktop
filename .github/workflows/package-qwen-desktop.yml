@@ -14,46 +14,90 @@ jobs:
           curl.exe -L "https://github.com/QwenLM/qwen-code/releases/download/desktop-v0.24.4/Qwen-Code-Desktop_0.24.4_x64-setup.exe" -o qwen-desktop-setup.exe
           Get-Item qwen-desktop-setup.exe
 
-      - name: Run silent install and wait for installer process
+      - name: Run silent install and locate installation
         shell: pwsh
         run: |
           $installer = ".\qwen-desktop-setup.exe"
 
-          # 使用 Start-Process 启动安装程序，-Wait 确保等待进程结束
+          # 执行静默安装
           $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru -Wait -NoNewWindow
           Write-Host "安装程序退出码: $($proc.ExitCode)"
-
-          # 等待安装文件系统刷盘
           Start-Sleep -Seconds 10
 
-          # 列出可能的安装位置，便于排查
-          Write-Host "== LOCALAPPDATA\Programs =="
-          Get-ChildItem "$env:LOCALAPPDATA\Programs" -ErrorAction SilentlyContinue
+          # 从注册表查找安装位置（按优先级尝试多个路径）
+          $installDir = $null
+          $regPaths = @(
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+          )
+          foreach ($path in $regPaths) {
+            $found = Get-ItemProperty $path -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "*Qwen*" -or $_.DisplayName -like "*qwen*" } |
+              Select-Object -First 1
+            if ($found -and $found.InstallLocation) {
+              $installDir = $found.InstallLocation
+              Write-Host "从注册表找到: $installDir (DisplayName=$($found.DisplayName))"
+              break
+            }
+          }
 
-          # 校验安装目录是否存在
-          $installDir = "$env:LOCALAPPDATA\Programs\qwen-code-desktop"
-          if (-not (Test-Path $installDir)) {
-            Write-Error "安装目录不存在: $installDir"
+          # 如果注册表找不到，再尝试常见默认路径
+          if (-not $installDir) {
+            $candidates = @(
+              "$env:LOCALAPPDATA\Programs\qwen-code-desktop",
+              "$env:LOCALAPPDATA\Programs\Qwen-Code-Desktop",
+              "$env:LOCALAPPDATA\qwen-code-desktop",
+              "$env:PROGRAMFILES\qwen-code-desktop",
+              "$env:PROGRAMFILES\Qwen-Code-Desktop",
+              "${env:ProgramFiles(x86)}\qwen-code-desktop",
+              "${env:ProgramFiles(x86)}\Qwen-Code-Desktop"
+            )
+            foreach ($c in $candidates) {
+              if (Test-Path $c) {
+                $installDir = $c
+                Write-Host "从候选路径找到: $installDir"
+                break
+              }
+            }
+          }
+
+          if (-not $installDir) {
+            Write-Host "== 排查信息：LOCALAPPDATA\Programs =="
+            Get-ChildItem "$env:LOCALAPPDATA\Programs" -ErrorAction SilentlyContinue
+            Write-Host "== 排查信息：LOCALAPPDATA 根目录 =="
+            Get-ChildItem "$env:LOCALAPPDATA" -ErrorAction SilentlyContinue | Select-Object Name
+            Write-Host "== 排查信息：Program Files 下含 Qwen 的目录 =="
+            Get-ChildItem "$env:PROGRAMFILES" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Qwen*" }
+            Write-Host "== 排查信息：注册表中含 Qwen 的卸载项 =="
+            foreach ($path in $regPaths) {
+              Get-ItemProperty $path -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like "*Qwen*" } |
+                Select-Object DisplayName, InstallLocation, UninstallString
+            }
+            Write-Error "无法定位安装目录"
             exit 1
           }
-          Write-Host "== 安装目录内容 =="
-          Get-ChildItem $installDir
+
+          Write-Host "找到安装目录: $installDir"
+          echo "INSTALL_DIR=$installDir" >> $env:GITHUB_ENV
 
       - name: Copy installed Tauri Desktop directory
         shell: pwsh
         run: |
-          $src = "$env:LOCALAPPDATA\Programs\qwen-code-desktop"
-          if (Test-Path $src) {
-            Copy-Item $src -Destination ".\qwen-desktop-portable" -Recurse -Force
-          } else {
-            Write-Error "安装目录不存在"
+          $src = $env:INSTALL_DIR
+          if (-not (Test-Path $src)) {
+            Write-Error "安装目录不存在: $src"
             exit 1
           }
+          Copy-Item $src -Destination ".\qwen-desktop-portable" -Recurse -Force
+          Get-ChildItem ".\qwen-desktop-portable" | Select-Object Name, Length
 
       - name: Compress portable folder
         shell: pwsh
         run: |
           Compress-Archive -Path ".\qwen-desktop-portable\*" -DestinationPath qwen-desktop-portable.zip -Force
+          Get-Item qwen-desktop-portable.zip | Select-Object Name, Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
