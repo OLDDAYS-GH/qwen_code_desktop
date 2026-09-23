@@ -1,20 +1,19 @@
 name: Build portable Qwen Desktop 0.24.4
 on:
-  workflow_dispatch: # 手动点击触发，不会自动跑
+  workflow_dispatch: #手动触发
 
 jobs:
   package:
     runs-on: windows-latest
     steps:
-      - name: Download Qwen Code Desktop Setup 0.24.4
+      - name: Download Qwen Code Desktop Setup 0.24.4 (using curl)
         run: |
-          $url = "https://github.com/QwenLM/qwen-code/releases/download/v0.24.4/Qwen Code Desktop Setup 0.24.4.exe"
-          Invoke-WebRequest -Uri $url -OutFile "qwen-desktop-setup.exe"
+          curl -L "https://github.com/QwenLM/qwen-code/releases/download/v0.24.4/Qwen Code Desktop Setup 0.24.4.exe" -o qwen-desktop-setup.exe
 
       - name: Silent install /S
         run: |
           .\qwen-desktop-setup.exe /S
-          Start-Sleep -Seconds 15 # 等待Tauri安装程序完成释放文件
+          Start-Sleep -Seconds 20 # 延长等待，Tauri安装释放文件较慢
 
       - name: Copy install directory
         run: |
