@@ -24,7 +24,7 @@ jobs:
           Write-Host "安装程序退出码: $($proc.ExitCode)"
           Start-Sleep -Seconds 10
 
-          # 从注册表查找安装位置（按优先级尝试多个路径）
+          # 从注册表查找安装位置
           $installDir = $null
           $regPaths = @(
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -33,11 +33,12 @@ jobs:
           )
           foreach ($path in $regPaths) {
             $found = Get-ItemProperty $path -ErrorAction SilentlyContinue |
-              Where-Object { $_.DisplayName -like "*Qwen*" -or $_.DisplayName -like "*qwen*" } |
+              Where-Object { $_.DisplayName -like "*Qwen*" } |
               Select-Object -First 1
             if ($found -and $found.InstallLocation) {
-              $installDir = $found.InstallLocation
-              Write-Host "从注册表找到: $installDir (DisplayName=$($found.DisplayName))"
+              # 关键：去掉注册表值里可能自带的引号
+              $installDir = $found.InstallLocation.Trim('"').Trim()
+              Write-Host "从注册表找到: [$installDir] (DisplayName=$($found.DisplayName))"
               break
             }
           }
@@ -47,6 +48,7 @@ jobs:
             $candidates = @(
               "$env:LOCALAPPDATA\Programs\qwen-code-desktop",
               "$env:LOCALAPPDATA\Programs\Qwen-Code-Desktop",
+              "$env:LOCALAPPDATA\Qwen Code Desktop",
               "$env:LOCALAPPDATA\qwen-code-desktop",
               "$env:PROGRAMFILES\qwen-code-desktop",
               "$env:PROGRAMFILES\Qwen-Code-Desktop",
@@ -62,24 +64,16 @@ jobs:
             }
           }
 
-          if (-not $installDir) {
-            Write-Host "== 排查信息：LOCALAPPDATA\Programs =="
-            Get-ChildItem "$env:LOCALAPPDATA\Programs" -ErrorAction SilentlyContinue
+          if (-not $installDir -or -not (Test-Path $installDir)) {
             Write-Host "== 排查信息：LOCALAPPDATA 根目录 =="
             Get-ChildItem "$env:LOCALAPPDATA" -ErrorAction SilentlyContinue | Select-Object Name
             Write-Host "== 排查信息：Program Files 下含 Qwen 的目录 =="
             Get-ChildItem "$env:PROGRAMFILES" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Qwen*" }
-            Write-Host "== 排查信息：注册表中含 Qwen 的卸载项 =="
-            foreach ($path in $regPaths) {
-              Get-ItemProperty $path -ErrorAction SilentlyContinue |
-                Where-Object { $_.DisplayName -like "*Qwen*" } |
-                Select-Object DisplayName, InstallLocation, UninstallString
-            }
             Write-Error "无法定位安装目录"
             exit 1
           }
 
-          Write-Host "找到安装目录: $installDir"
+          Write-Host "最终安装目录: $installDir"
           echo "INSTALL_DIR=$installDir" >> $env:GITHUB_ENV
 
       - name: Copy installed Tauri Desktop directory
@@ -90,7 +84,7 @@ jobs:
             Write-Error "安装目录不存在: $src"
             exit 1
           }
-          Copy-Item $src -Destination ".\qwen-desktop-portable" -Recurse -Force
+          Copy-Item -LiteralPath $src -Destination ".\qwen-desktop-portable" -Recurse -Force
           Get-ChildItem ".\qwen-desktop-portable" | Select-Object Name, Length
 
       - name: Compress portable folder
