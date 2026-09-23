@@ -1,31 +1,35 @@
-name: Build portable Qwen Desktop 0.24.4
+name: Build portable Qwen Desktop GUI 0.24.4
 on:
-  workflow_dispatch: #手动触发
+  workflow_dispatch:
 
 jobs:
-  package:
+  build:
     runs-on: windows-latest
     steps:
-      - name: Download Qwen Code Desktop Setup 0.24.4 (using curl)
+      - name: Download Qwen Code Desktop setup (gh cli)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -L "https://github.com/QwenLM/qwen-code/releases/download/v0.24.4/Qwen Code Desktop Setup 0.24.4.exe" -o qwen-desktop-setup.exe
+          # 精确匹配Desktop安装包，不是CLI zip
+          gh release download v0.24.4 -R QwenLM/qwen-code -p "Qwen-Code-Desktop_0.24.4_x64-setup.exe" -O qwen-desktop-setup.exe
+          Get-Item qwen-desktop-setup.exe
 
-      - name: Silent install /S
+      - name: Silent install Desktop /S
         run: |
           .\qwen-desktop-setup.exe /S
-          Start-Sleep -Seconds 20 # 延长等待，Tauri安装释放文件较慢
+          Start-Sleep -Seconds 25
 
-      - name: Copy install directory
+      - name: Copy installed Tauri Desktop目录
         run: |
           $src = "$env:LOCALAPPDATA\Programs\qwen-code-desktop"
-          Copy-Item -Path $src -Destination ".\qwen-desktop-portable" -Recurse -Force
+          Copy-Item $src -Destination .\qwen-desktop-portable -Recurse -Force
 
-      - name: Zip portable folder
+      - name: Compress portable folder
         run: |
           Compress-Archive -Path .\qwen-desktop-portable\* -DestinationPath qwen-desktop-portable.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-desktop-portable
+          name: qwen-desktop-portable-gui
           path: qwen-desktop-portable.zip
