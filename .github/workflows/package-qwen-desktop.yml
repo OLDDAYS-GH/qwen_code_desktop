@@ -6,28 +6,29 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: List assets of desktop-v0.24.4
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download Qwen Desktop Setup via curl
         run: |
-          gh release view desktop-v0.24.4 -R QwenLM/qwen-code --json assets
-
-      - name: Download Qwen Desktop Setup
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download desktop-v0.24.4 -R QwenLM/qwen-code -p "Qwen-Code-Desktop_0.24.4_x64-setup.exe" -O qwen-desktop-setup.exe
+          curl -L "https://github.com/QwenLM/qwen-code/releases/download/desktop-v0.24.4/Qwen-Code-Desktop_0.24.4_x64-setup.exe" -o qwen-desktop-setup.exe
           Get-Item qwen-desktop-setup.exe
 
-      - name: Silent install /S
+      - name: Run silent install and wait for installer process
         run: |
           .\qwen-desktop-setup.exe /S
-          Start-Sleep -Seconds 25
+          # 等待安装程序进程结束
+          Wait-Process -Name "Qwen-Code-Desktop_0.24.4_x64-setup" -Timeout 40
+          Start-Sleep -Seconds 10
+          # 列出目录，检查是否生成
+          Get-ChildItem "$env:LOCALAPPDATA\Programs"
 
       - name: Copy installed Tauri Desktop directory
         run: |
           $src = "$env:LOCALAPPDATA\Programs\qwen-code-desktop"
-          Copy-Item $src -Destination .\qwen-desktop-portable -Recurse -Force
+          if(Test-Path $src){
+            Copy-Item $src -Destination .\qwen-desktop-portable -Recurse -Force
+          }else{
+            Write-Error "安装目录不存在"
+            exit 1
+          }
 
       - name: Compress portable folder
         run: |
